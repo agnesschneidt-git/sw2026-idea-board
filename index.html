@@ -335,7 +335,7 @@
     <div class="tab active" data-tab="submit" role="tab" aria-selected="true"><i class="ti ti-pencil-plus" aria-hidden="true"></i> Submit idea</div>
     <div class="tab" data-tab="wall" role="tab" aria-selected="false"><i class="ti ti-layout-list" aria-hidden="true"></i> Idea wall</div>
     <div class="tab" data-tab="review" role="tab" aria-selected="false"><i class="ti ti-table" aria-hidden="true"></i> Review</div>
-
+    <div class="tab" data-tab="settings" role="tab" aria-selected="false"><i class="ti ti-settings" aria-hidden="true"></i> Settings</div>
   </nav>
 
   <!-- ── SUBMIT ── -->
@@ -371,7 +371,10 @@
 
     <div class="summ-status" id="summStatus" aria-live="polite"></div>
 
-
+    <div class="sync-bar" id="syncBar" aria-live="polite">
+      <div class="sdot sdot-warn" id="syncDot" aria-hidden="true"></div>
+      <span id="syncMsg">Sheets sync not configured — ideas saved locally. Go to Settings to connect.</span>
+    </div>
   </section>
 
   <!-- ── WALL ── -->
@@ -429,7 +432,32 @@
     </table>
   </section>
 
+  <!-- ── SETTINGS ── -->
+  <section class="panel" id="panel-settings" role="tabpanel">
+    <div class="settings-card">
+      <h3>Google Sheets sync</h3>
+      <p>Paste your Apps Script deployment URL. Each submission will be appended as a new row: timestamp, category, author, one-line summary, and full idea text. Sync is live — new ideas post automatically.</p>
+      <div class="si-row">
+        <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/…/exec" aria-label="Apps Script URL" />
+        <button class="btn-save" id="saveScript">Save</button>
+      </div>
+      <div id="testResult" style="margin-top:8px;font-size:12px;color:var(--text-3);font-family:var(--mono);min-height:18px;"></div>
+    </div>
 
+    <div class="settings-card">
+      <h3>Data management</h3>
+      <p>Ideas are stored in your browser (localStorage) and optionally synced to Google Sheets. Export before clearing.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-sec" id="exportJsonS"><i class="ti ti-file-code" aria-hidden="true"></i> Export JSON</button>
+        <button class="btn-danger" id="clearAll"><i class="ti ti-trash" aria-hidden="true"></i> Clear all local data</button>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <h3>About this tool</h3>
+      <p>Built for Scaling Week 2026 organising team and experience designers. A second version for participant input can be deployed separately once content direction is set. Voice input works in Chrome and Edge; other browsers default to text only.</p>
+    </div>
+  </section>
 
 </div><!-- /page -->
 
@@ -443,12 +471,11 @@ const CATS = {
   other:      { label: 'Other',            bg: 'var(--gray-50)',  color: 'var(--gray-600)', border: 'var(--gray-200)' }
 };
 
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwcyH1kXiafXG5rC0w2j-kUvjVtUKXlzG0HzxusWygg6y5Xw4dbkffmZ0RBDZEebIEQ/exec';
-let ideas = [], activeCat = 'format', activeFilter = 'all';
+let ideas = [], activeCat = 'format', activeFilter = 'all', scriptUrl = '';
 
 function load() {
   try { ideas = JSON.parse(localStorage.getItem('sw2026_ideas') || '[]'); } catch(e) { ideas = []; }
-
+  try { scriptUrl = localStorage.getItem('sw2026_script') || ''; } catch(e) {}
 }
 function persist() { try { localStorage.setItem('sw2026_ideas', JSON.stringify(ideas)); } catch(e) {} }
 
@@ -512,9 +539,22 @@ function renderReview() {
     </tr>`).join('');
 }
 
+function updateSync() {
+  const dot = document.getElementById('syncDot');
+  const msg = document.getElementById('syncMsg');
+  if (scriptUrl) {
+    dot.className = 'sdot sdot-ok';
+    msg.textContent = 'Syncing to Google Sheets — submissions appended automatically.';
+  } else {
+    dot.className = 'sdot sdot-warn';
+    msg.textContent = 'Sheets sync not configured — ideas saved locally. Go to Settings to connect.';
+  }
+}
+
 async function syncToSheets(idea) {
+  if (!scriptUrl) return;
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await fetch(scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'appendIdea', idea })
@@ -557,6 +597,7 @@ document.querySelectorAll('.tab').forEach(t => {
     panel.classList.add('active');
     if (t.dataset.tab === 'wall') renderWall();
     if (t.dataset.tab === 'review') renderReview();
+    if (t.dataset.tab === 'settings') document.getElementById('scriptUrl').value = scriptUrl;
   });
 });
 
@@ -602,6 +643,16 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   setTimeout(() => btn.style.background = '', 2000);
 });
 
+// Save script URL
+document.getElementById('saveScript').addEventListener('click', () => {
+  scriptUrl = document.getElementById('scriptUrl').value.trim();
+  try { localStorage.setItem('sw2026_script', scriptUrl); } catch(e) {}
+  updateSync();
+  const btn = document.getElementById('saveScript');
+  btn.textContent = 'Saved ✓'; btn.style.background = 'var(--green)';
+  setTimeout(() => { btn.textContent = 'Save'; btn.style.background = ''; }, 1800);
+});
+
 // Export CSV
 function doExportCsv() {
   if (!ideas.length) return;
@@ -629,6 +680,13 @@ function doExportJson() {
 }
 document.getElementById('exportCsv').addEventListener('click', doExportCsv);
 document.getElementById('exportJson').addEventListener('click', doExportJson);
+document.getElementById('exportJsonS').addEventListener('click', doExportJson);
+
+// Clear
+document.getElementById('clearAll').addEventListener('click', () => {
+  if (!confirm('Clear all locally stored ideas? This cannot be undone. Export first if you need a backup.')) return;
+  ideas = []; persist(); updateCount(); renderWall(); renderReview();
+});
 
 // AI synthesis
 document.getElementById('runAI').addEventListener('click', async () => {
@@ -691,7 +749,7 @@ if (SR) {
 }
 
 // Init
-
+load(); updateCount(); updateSync();
 </script>
 </body>
 </html>
